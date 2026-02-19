@@ -170,10 +170,19 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
         text[at + 3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
     };
 
-    writeRel32(10, static_cast<std::int32_t>(kRdataRva + helloOffset) - static_cast<std::int32_t>(kTextRva + 14));
-    writeRel32(17, static_cast<std::int32_t>(kRdataRva + captionOffset) - static_cast<std::int32_t>(kTextRva + 21));
-    writeRel32(27, static_cast<std::int32_t>(kRdataRva + iatUser32Offset) - static_cast<std::int32_t>(kTextRva + 28));
-    writeRel32(39, static_cast<std::int32_t>(kRdataRva + iatKernel32Offset) - static_cast<std::int32_t>(kTextRva + 40));
+    const std::uint32_t instrLeaRdxRva = kTextRva + 7;   // 7-byte instruction
+    const std::uint32_t instrLeaR8Rva = kTextRva + 14;   // 7-byte instruction
+    const std::uint32_t instrMovMsgBoxRva = kTextRva + 24;   // 7-byte instruction
+    const std::uint32_t instrMovExitProcessRva = kTextRva + 35;  // 7-byte instruction
+
+    writeRel32(10, static_cast<std::int32_t>(kRdataRva + helloOffset) -
+                       static_cast<std::int32_t>(instrLeaRdxRva + 7));
+    writeRel32(17, static_cast<std::int32_t>(kRdataRva + captionOffset) -
+                       static_cast<std::int32_t>(instrLeaR8Rva + 7));
+    writeRel32(27, static_cast<std::int32_t>(kRdataRva + iatUser32Offset) -
+                       static_cast<std::int32_t>(instrMovMsgBoxRva + 7));
+    writeRel32(38, static_cast<std::int32_t>(kRdataRva + iatKernel32Offset) -
+                       static_cast<std::int32_t>(instrMovExitProcessRva + 7));
 
     const std::uint32_t sizeOfHeaders = static_cast<std::uint32_t>(
         AlignUp(0x80 + sizeof(IMAGE_NT_HEADERS64) + 2 * sizeof(IMAGE_SECTION_HEADER), kFileAlignment));
