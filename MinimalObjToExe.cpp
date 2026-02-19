@@ -30,24 +30,24 @@ void AppendZeros(std::vector<std::uint8_t>& dst, size_t count) {
 bool ValidateMinimalObj(const std::wstring& objPath, std::wstring& error) {
     std::ifstream obj(objPath, std::ios::binary);
     if (!obj) {
-        error = L"OBJファイルを開けませんでした。";
+        error = L"Failed to open OBJ file.";
         return false;
     }
 
     IMAGE_FILE_HEADER header{};
     obj.read(reinterpret_cast<char*>(&header), sizeof(header));
     if (obj.gcount() != static_cast<std::streamsize>(sizeof(header))) {
-        error = L"OBJファイルが小さすぎます。";
+        error = L"OBJ file is too small.";
         return false;
     }
 
     if (header.Machine != IMAGE_FILE_MACHINE_AMD64) {
-        error = L"x64 (IMAGE_FILE_MACHINE_AMD64) のOBJのみ対応しています。";
+        error = L"Only x64 (IMAGE_FILE_MACHINE_AMD64) OBJ is supported.";
         return false;
     }
 
     if (header.NumberOfSections == 0) {
-        error = L"セクションが存在しないOBJは変換できません。";
+        error = L"OBJ with zero sections cannot be converted.";
         return false;
     }
 
@@ -57,21 +57,10 @@ bool ValidateMinimalObj(const std::wstring& objPath, std::wstring& error) {
 bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
     constexpr std::uint32_t kFileAlignment = 0x200;
     constexpr std::uint32_t kSectionAlignment = 0x1000;
-    constexpr std::uint32_t kImageBase = 0x140000000;
+    constexpr std::uint64_t kImageBase = 0x140000000ULL;
     constexpr std::uint32_t kTextRva = 0x1000;
     constexpr std::uint32_t kRdataRva = 0x2000;
 
-    // x64 code:
-    // sub rsp, 28h
-    // xor rcx, rcx
-    // lea rdx, [rip + msg]
-    // lea r8,  [rip + cap]
-    // xor r9d, r9d
-    // mov rax, [rip + __imp_MessageBoxA]
-    // call rax
-    // xor ecx, ecx
-    // mov rax, [rip + __imp_ExitProcess]
-    // call rax
     std::vector<std::uint8_t> text = {
         0x48, 0x83, 0xEC, 0x28,
         0x48, 0x31, 0xC9,
@@ -89,7 +78,7 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
 
     auto appendCString = [&rdata](const char* value) -> std::uint32_t {
         const std::uint32_t offset = static_cast<std::uint32_t>(rdata.size());
-        const size_t len = strlen(value) + 1u;
+        const size_t len = std::strlen(value) + 1u;
         AppendBytes(rdata, value, len);
         return offset;
     };
@@ -98,7 +87,7 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
         const std::uint32_t offset = static_cast<std::uint32_t>(rdata.size());
         const std::uint16_t hint = 0;
         AppendStruct(rdata, hint);
-        AppendBytes(rdata, name, strlen(name) + 1u);
+        AppendBytes(rdata, name, std::strlen(name) + 1u);
         if ((rdata.size() & 1u) != 0u) {
             rdata.push_back(0);
         }
@@ -185,13 +174,15 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
     writeRel32(27, static_cast<std::int32_t>(iatMessageBoxRva) - static_cast<std::int32_t>(instrMovMsgBox + 7));
     writeRel32(39, static_cast<std::int32_t>(iatExitProcessRva) - static_cast<std::int32_t>(instrMovExit + 7));
 
-    const std::uint32_t sizeOfHeaders = static_cast<std::uint32_t>(AlignUp(0x80 + sizeof(IMAGE_NT_HEADERS64) + 2 * sizeof(IMAGE_SECTION_HEADER), kFileAlignment));
+    const std::uint32_t sizeOfHeaders = static_cast<std::uint32_t>(
+        AlignUp(0x80 + sizeof(IMAGE_NT_HEADERS64) + 2 * sizeof(IMAGE_SECTION_HEADER), kFileAlignment));
     const std::uint32_t textRawSize = static_cast<std::uint32_t>(AlignUp(text.size(), kFileAlignment));
     const std::uint32_t rdataRawSize = static_cast<std::uint32_t>(AlignUp(rdata.size(), kFileAlignment));
     const std::uint32_t textRawPtr = sizeOfHeaders;
     const std::uint32_t rdataRawPtr = textRawPtr + textRawSize;
 
-    const std::uint32_t sizeOfImage = static_cast<std::uint32_t>(AlignUp(kRdataRva + static_cast<std::uint32_t>(rdata.size()), kSectionAlignment));
+    const std::uint32_t sizeOfImage = static_cast<std::uint32_t>(
+        AlignUp(kRdataRva + static_cast<std::uint32_t>(rdata.size()), kSectionAlignment));
 
     IMAGE_DOS_HEADER dos{};
     dos.e_magic = IMAGE_DOS_SIGNATURE;
@@ -201,7 +192,7 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
     nt.Signature = IMAGE_NT_SIGNATURE;
     nt.FileHeader.Machine = IMAGE_FILE_MACHINE_AMD64;
     nt.FileHeader.NumberOfSections = 2;
-    nt.FileHeader.TimeDateStamp = static_cast<DWORD>(time(nullptr));
+    nt.FileHeader.TimeDateStamp = static_cast<DWORD>(std::time(nullptr));
     nt.FileHeader.SizeOfOptionalHeader = sizeof(IMAGE_OPTIONAL_HEADER64);
     nt.FileHeader.Characteristics = IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE;
 
@@ -215,7 +206,8 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
     nt.OptionalHeader.SizeOfImage = sizeOfImage;
     nt.OptionalHeader.SizeOfHeaders = sizeOfHeaders;
     nt.OptionalHeader.Subsystem = IMAGE_SUBSYSTEM_WINDOWS_GUI;
-    nt.OptionalHeader.DllCharacteristics = IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE | IMAGE_DLLCHARACTERISTICS_NX_COMPAT;
+    nt.OptionalHeader.DllCharacteristics =
+        IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE | IMAGE_DLLCHARACTERISTICS_NX_COMPAT;
     nt.OptionalHeader.SizeOfStackReserve = 1u << 20;
     nt.OptionalHeader.SizeOfStackCommit = 1u << 12;
     nt.OptionalHeader.SizeOfHeapReserve = 1u << 20;
@@ -230,7 +222,7 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
     nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size = (2 + 2) * sizeof(std::uint64_t);
 
     IMAGE_SECTION_HEADER textSec{};
-    memcpy(textSec.Name, ".text", 5);
+    std::memcpy(textSec.Name, ".text", 5);
     textSec.Misc.VirtualSize = static_cast<DWORD>(text.size());
     textSec.VirtualAddress = kTextRva;
     textSec.SizeOfRawData = textRawSize;
@@ -238,7 +230,7 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
     textSec.Characteristics = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_EXECUTE;
 
     IMAGE_SECTION_HEADER rdataSec{};
-    memcpy(rdataSec.Name, ".rdata", 6);
+    std::memcpy(rdataSec.Name, ".rdata", 6);
     rdataSec.Misc.VirtualSize = static_cast<DWORD>(rdata.size());
     rdataSec.VirtualAddress = kRdataRva;
     rdataSec.SizeOfRawData = rdataRawSize;
@@ -248,12 +240,12 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
     std::vector<std::uint8_t> file;
     file.resize(sizeOfHeaders, 0);
 
-    memcpy(&file[0], &dos, sizeof(dos));
-    memcpy(&file[dos.e_lfanew], &nt, sizeof(nt));
+    std::memcpy(&file[0], &dos, sizeof(dos));
+    std::memcpy(&file[dos.e_lfanew], &nt, sizeof(nt));
 
-    size_t secOffset = dos.e_lfanew + sizeof(nt);
-    memcpy(&file[secOffset], &textSec, sizeof(textSec));
-    memcpy(&file[secOffset + sizeof(textSec)], &rdataSec, sizeof(rdataSec));
+    const size_t secOffset = dos.e_lfanew + sizeof(nt);
+    std::memcpy(&file[secOffset], &textSec, sizeof(textSec));
+    std::memcpy(&file[secOffset + sizeof(textSec)], &rdataSec, sizeof(rdataSec));
 
     file.insert(file.end(), text.begin(), text.end());
     AppendZeros(file, textRawSize - text.size());
@@ -263,13 +255,13 @@ bool BuildHelloWorldExe(const std::wstring& outputPath, std::wstring& error) {
 
     std::ofstream out(outputPath, std::ios::binary);
     if (!out) {
-        error = L"出力EXEファイルを作成できませんでした。";
+        error = L"Failed to create output EXE file.";
         return false;
     }
 
     out.write(reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size()));
     if (!out.good()) {
-        error = L"EXEの書き込みに失敗しました。";
+        error = L"Failed to write EXE file.";
         return false;
     }
 
@@ -290,15 +282,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (argv == nullptr) {
-        MessageBoxW(nullptr, L"引数の解析に失敗しました。", L"obj2exe", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Failed to parse command line.", L"obj2exe", MB_ICONERROR);
         return 1;
     }
 
     if (argc < 2) {
         const wchar_t* usage =
-            L"使い方:\n"
+            L"Usage:\n"
             L"  obj2exe.exe <input.obj> [output.exe]\n\n"
-            L"最小OBJを検証し、Hello world! を表示する最小GUI EXEを生成します。";
+            L"Validates a minimal OBJ and generates a minimal GUI EXE that shows Hello world!.";
         MessageBoxW(nullptr, usage, L"obj2exe", MB_OK | MB_ICONINFORMATION);
         LocalFree(argv);
         return 0;
@@ -310,16 +302,17 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     std::wstring error;
     if (!ValidateMinimalObj(inputObj, error)) {
-        MessageBoxW(nullptr, error.c_str(), L"obj2exe: 変換失敗", MB_ICONERROR);
+        MessageBoxW(nullptr, error.c_str(), L"obj2exe: conversion failed", MB_ICONERROR);
         return 1;
     }
 
     if (!BuildHelloWorldExe(outputExe, error)) {
-        MessageBoxW(nullptr, error.c_str(), L"obj2exe: 変換失敗", MB_ICONERROR);
+        MessageBoxW(nullptr, error.c_str(), L"obj2exe: conversion failed", MB_ICONERROR);
         return 1;
     }
 
-    std::wstring ok = L"変換完了:\n" + outputExe + L"\n\n生成されたEXEを実行すると、\"Hello world!\" を表示します。";
+    std::wstring ok = L"Conversion complete:\n" + outputExe +
+                      L"\n\nRunning the generated EXE will display \"Hello world!\".";
     MessageBoxW(nullptr, ok.c_str(), L"obj2exe", MB_OK | MB_ICONINFORMATION);
     return 0;
 }
